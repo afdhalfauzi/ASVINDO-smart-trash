@@ -1,81 +1,107 @@
 #include "mqttHandler.h"
 #include "sensorHandler.h"
 #include "fuzzyHandler.h"
+#include "notificationHandler.h"
 #include <ESP32Servo.h>
+#include <LiquidCrystal_I2C.h>
 #include <Arduino.h>
 
-#define SERVO_PIN 26
+#define SERVO_PIN 5
+#define BUZZER_PIN 27
+#define LED_PIN 12
 
 MQTT mqtt;
 FUZZY fuzzy;
-IRsensor IRsensor1(27);
-IRsensor IRsensor2(14);
-IRsensor IRsensor3(12);
-IRsensor IRsensor4(13);
+IRsensor InfraRed(34);
+TeleBot teleBot;
 
-Ping Ping1(15, 2);
-Ping Ping2(4, 5);
-Ping Ping3(18, 19);
+Ping Ping1(19, 18);
+Ping Ping2(2, 4);
+Ping Ping3(13, 15);
 
 Servo servo;
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+
 void gate();
+void display();
 float rata2_Us();
 
 unsigned long millisMqtt = 0;
 unsigned long millisFuzzy = 0;
+float jarak1, jarak2, jarak3, avg, output_fuzzy;
+bool isFull = false;
 
 void setup()
 {
   Serial.begin(115200);
 
+  lcd.init();
+  lcd.backlight();
   mqtt.begin();
+  teleBot.begin();
   fuzzy.begin();
-  IRsensor1.begin();
-  IRsensor2.begin();
-  IRsensor3.begin();
-  IRsensor4.begin();
+  InfraRed.begin();
   Ping1.begin();
   Ping2.begin();
   Ping3.begin();
   servo.attach(SERVO_PIN);
-  servo.write(90);
+  servo.write(10);
+  pinMode(BUZZER_PIN, OUTPUT);
 }
 
 void loop()
 {
-  // gate();
+  if (output_fuzzy >= 75)
+  {
+    digitalWrite(BUZZER_PIN, HIGH);
+    if (!isFull)
+    {
+      teleBot.sendMessage("⚠ALERT⚠\nTempat sampah full!.\nPerlu dikosongkan agar dapat digunakan kembali");
+    }
+    isFull = true;
+  }
+  else
+  {
+    gate();
+    digitalWrite(BUZZER_PIN, LOW);
+    if (isFull)
+    {
+      teleBot.sendMessage("🚮INFO\nTempat sampah dapat digunakan kembali\nKapasitas saat ini:" + String(output_fuzzy, 0) + "%");
+    }
+    isFull = false;
+  }
 
-  if (millis() - millisFuzzy >= 1000)
+  if (millis() - millisFuzzy >= 2000)
   {
     millisFuzzy = millis();
-    fuzzy.setInput(1, rata2_Us());
+    // avg = rata2_Us();
+    avg = map(rata2_Us(), 0, 50, 0, 70);
+    fuzzy.setInput(1, avg);
     fuzzy.fuzify();
+    output_fuzzy = fuzzy.defuzify();
+    Serial.println(output_fuzzy);
+    display();
   }
 
   mqtt.loop();
   if (millis() - millisMqtt >= 4000)
   {
     millisMqtt = millis();
-    float output_fuzzy = fuzzy.defuzify();
-    Serial.println(output_fuzzy);
     mqtt.publish(output_fuzzy);
   }
 }
 
 void gate()
 {
-  // Serial.printf("IR State1: %d\n", IRsensor1.getRead());
-  // Serial.printf("IR State2: %d\n", IRsensor2.getRead());
-  // Serial.printf("IR State3: %d\n", IRsensor3.getRead());
-  // Serial.printf("IR State4: %d\n", IRsensor4.getRead());
+  Serial.printf("IR State1: %d\n", InfraRed.getRead());
 
   // IR detects
-  if (!IRsensor1.getRead() || !IRsensor2.getRead() || !IRsensor3.getRead())
+  if (!InfraRed.getRead())
   {
     // Open then close lid
     servo.write(180);
     delay(6000);
-    for (int i = 180; i > 1; i--)
+    for (int i = 180; i > 10; i--)
     {
       servo.write(i);
       delay(10);
@@ -83,7 +109,7 @@ void gate()
   }
   else
   {
-    servo.write(0);
+    servo.write(10);
   }
 }
 
@@ -97,9 +123,9 @@ float volume_sampah(int jarak)
 
 float rata2_Us()
 {
-  float jarak1 = Ping1.readDistanceCM();
-  float jarak2 = Ping2.readDistanceCM();
-  float jarak3 = Ping3.readDistanceCM();
+  jarak1 = Ping1.readDistanceCM();
+  jarak2 = Ping2.readDistanceCM();
+  jarak3 = Ping3.readDistanceCM();
 
   Serial.printf("US State1: %f\n", jarak1);
   Serial.printf("US State2: %f\n", jarak2);
@@ -109,4 +135,29 @@ float rata2_Us()
   Serial.printf("US Avg: %f\n\n", rata_rata);
 
   return rata_rata;
+}
+
+void display()
+{
+  lcd.setCursor(0, 0);
+  lcd.print("1:");
+  lcd.setCursor(5, 0);
+  lcd.print("2:");
+  lcd.setCursor(10, 0);
+  lcd.print("3:");
+  lcd.setCursor(2, 0);
+  lcd.print(String(jarak1, 0) + " ");
+  lcd.setCursor(7, 0);
+  lcd.print(String(jarak2, 0) + " ");
+  lcd.setCursor(12, 0);
+  lcd.print(String(jarak3, 0) + " ");
+
+  lcd.setCursor(0, 1);
+  lcd.print("AVG:");
+  lcd.setCursor(7, 1);
+  lcd.print("FUZZY:");
+  lcd.setCursor(4, 1);
+  lcd.print(String(avg, 0) + " ");
+  lcd.setCursor(13, 1);
+  lcd.print(String(output_fuzzy, 0) + " ");
 }
