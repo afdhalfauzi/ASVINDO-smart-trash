@@ -15,7 +15,7 @@ FUZZY fuzzy;
 IRsensor InfraRed(34);
 TeleBot teleBot;
 
-Ping Ping1(19, 18);
+Ping Ping1(19, 18);//(Echo, Trigger)
 Ping Ping2(2, 4);
 Ping Ping3(13, 15);
 
@@ -29,7 +29,7 @@ float rata2_Us();
 unsigned long millisMqtt = 0;
 unsigned long millisFuzzy = 0;
 float jarak1, jarak2, jarak3, avg, output_fuzzy;
-bool isFull = false;
+bool isFull = true;
 
 void setup()
 {
@@ -51,7 +51,7 @@ void setup()
 
 void loop()
 {
-  if (output_fuzzy >= 75)
+  if (output_fuzzy > 75)
   {
     digitalWrite(BUZZER_PIN, HIGH);
     if (!isFull)
@@ -66,16 +66,20 @@ void loop()
     digitalWrite(BUZZER_PIN, LOW);
     if (isFull)
     {
+      avg = map(rata2_Us(), 20, 70, 0, 70);
+      fuzzy.setInput(1, avg);
+      fuzzy.fuzify();
+      output_fuzzy = fuzzy.defuzify();
       teleBot.sendMessage("🚮INFO\nTempat sampah dapat digunakan kembali\nKapasitas saat ini:" + String(output_fuzzy, 0) + "%");
     }
     isFull = false;
   }
 
-  if (millis() - millisFuzzy >= 2000)
+  if (millis() - millisFuzzy >= 1000)
   {
     millisFuzzy = millis();
     // avg = rata2_Us();
-    avg = map(rata2_Us(), 0, 50, 0, 70);
+    avg = map(rata2_Us(), 20, 70, 0, 70);
     fuzzy.setInput(1, avg);
     fuzzy.fuzify();
     output_fuzzy = fuzzy.defuzify();
